@@ -1,0 +1,40 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+TestResults/
+
+# NuGet packages and generated archives
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+
+# Visual Studio / Rider user state
+.vs/
+.idea/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code local workspace state
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# Logs and local environment files
+*.log
+.env
+.env.*
+exec.bat
+querysample.md
+
+# OS-generated files
+Thumbs.db
+.DS_Store
