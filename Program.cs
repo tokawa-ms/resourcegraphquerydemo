@@ -119,7 +119,7 @@ internal sealed record AppArguments(string QuerySamplePath, string? Subscription
 {
     public static AppArguments Parse(string[] args)
     {
-        // querysample.md を既定値にしつつ、必要なオプションだけを最小限の自前パーサーで受け取る。
+        // querysample.md を既定値にしつつ、必要なオプションだけを簡易な手動解析で受け取る。
         string querySamplePath = GetDefaultQuerySamplePath();
         string? subscriptionId = null;
         string? targetResourceId = null;
