@@ -104,6 +104,14 @@ catch (Exception exception) when (exception is not OperationCanceledException)
     Environment.ExitCode = 1;
 }
 
+/// <summary>
+/// 現在の資格情報から最初のテナントを取得する。
+/// Resource Graph の呼び出しにはテナント スコープのクライアントが必要なため使用する。
+/// </summary>
+/// <param name="armClient">Azure Resource Manager クライアント。</param>
+/// <param name="cancellationToken">キャンセル トークン。</param>
+/// <returns>取得した <see cref="TenantResource"/>。</returns>
+/// <exception cref="InvalidOperationException">テナントが 1 件も見つからない場合。</exception>
 static async Task<TenantResource> GetTenantAsync(ArmClient armClient, CancellationToken cancellationToken)
 {
     // Resource Graph の呼び出しにはテナント スコープのクライアントが必要なため、見えている先頭テナントを採用する。
@@ -115,8 +123,24 @@ static async Task<TenantResource> GetTenantAsync(ArmClient armClient, Cancellati
     throw new InvalidOperationException("No Azure tenant was found for the current credential.");
 }
 
+/// <summary>
+/// コマンドライン引数を解析した結果を保持するレコード。
+/// </summary>
+/// <param name="QuerySamplePath">クエリ サンプル ファイルのパス。</param>
+/// <param name="SubscriptionId">対象サブスクリプション ID。省略時は <see langword="null"/>。</param>
+/// <param name="TargetResourceId">クエリ内で上書きする対象リソース ID。省略時は <see langword="null"/>。</param>
+/// <param name="Top">取得する最大件数。</param>
+/// <param name="DiagnoseAuth">認証診断モードを有効にするかどうか。</param>
+/// <param name="JsonOutput">JSON 形式で出力するかどうか。</param>
+/// <param name="CredentialMode">使用する資格情報の種類 (<c>default</c> または <c>azurecli</c>)。</param>
 internal sealed record AppArguments(string QuerySamplePath, string? SubscriptionId, string? TargetResourceId, int Top, bool DiagnoseAuth, bool JsonOutput, string CredentialMode)
 {
+    /// <summary>
+    /// コマンドライン引数の配列を解析し、<see cref="AppArguments"/> のインスタンスを返す。
+    /// </summary>
+    /// <param name="args">コマンドライン引数の配列。</param>
+    /// <returns>解析済みの引数を保持する <see cref="AppArguments"/>。</returns>
+    /// <exception cref="ArgumentException">未知の引数またはオプション値が不正な場合。</exception>
     public static AppArguments Parse(string[] args)
     {
         // querysample.md を既定値にしつつ、必要なオプションだけを簡易な手動解析で受け取る。
@@ -213,9 +237,20 @@ internal sealed record AppArguments(string QuerySamplePath, string? Subscription
     }
 }
 
+/// <summary>
+/// 指定した認証モードに対応する <see cref="TokenCredential"/> を生成するファクトリ クラス。
+/// </summary>
 internal static class CredentialFactory
 {
     // サンプル用途なので、利用者が意図した認証方式を明示的に選べるようにしている。
+    /// <summary>
+    /// 認証モードに対応する <see cref="TokenCredential"/> を生成して返す。
+    /// </summary>
+    /// <param name="credentialMode">
+    /// 認証モード。<c>azurecli</c> を指定すると <see cref="AzureCliCredential"/>、
+    /// それ以外は <see cref="DefaultAzureCredential"/> を返す。
+    /// </param>
+    /// <returns>生成した <see cref="TokenCredential"/>。</returns>
     public static TokenCredential Create(string credentialMode) => credentialMode switch
     {
         "azurecli" => new AzureCliCredential(),
@@ -223,8 +258,21 @@ internal static class CredentialFactory
     };
 }
 
+/// <summary>
+/// 認証診断情報をコンソールに出力するクラス。
+/// 認証トークンのクレーム、見えているサブスクリプション一覧、および簡易クエリの実行結果を表示する。
+/// </summary>
 internal static class DiagnosticsPrinter
 {
+    /// <summary>
+    /// 認証診断情報をコンソールに非同期で出力する。
+    /// </summary>
+    /// <param name="credential">診断対象の <see cref="TokenCredential"/>。</param>
+    /// <param name="armClient">Azure Resource Manager クライアント。</param>
+    /// <param name="tenant">現在のテナント リソース。</param>
+    /// <param name="subscriptionId">確認対象のサブスクリプション ID。</param>
+    /// <param name="targetResourceId">確認対象のリソース ID。省略時は <see langword="null"/>。</param>
+    /// <param name="cancellationToken">キャンセル トークン。</param>
     public static async Task PrintAsync(
         TokenCredential credential,
         ArmClient armClient,
@@ -314,10 +362,28 @@ internal static class DiagnosticsPrinter
     }
 }
 
+/// <summary>
+/// サブスクリプションの表示名と ID をまとめた簡易データ クラス。
+/// </summary>
+/// <param name="DisplayName">サブスクリプションの表示名。</param>
+/// <param name="SubscriptionId">サブスクリプション ID。</param>
 internal sealed record SubscriptionSummary(string DisplayName, string SubscriptionId);
 
+/// <summary>
+/// Azure アクセス トークンから読み取った主要な JWT クレームを保持するレコード。
+/// </summary>
+/// <param name="TenantId">テナント ID (<c>tid</c> クレーム)。</param>
+/// <param name="ObjectId">オブジェクト ID (<c>oid</c> クレーム)。</param>
+/// <param name="ApplicationId">アプリケーション ID (<c>appid</c> クレーム)。</param>
+/// <param name="UserPrincipalName">ユーザー プリンシパル名 (<c>upn</c> または <c>preferred_username</c> クレーム)。</param>
 internal sealed record TokenClaims(string TenantId, string ObjectId, string ApplicationId, string UserPrincipalName)
 {
+    /// <summary>
+    /// 現在の資格情報からアクセス トークンを取得し、主要クレームを解析して返す。
+    /// </summary>
+    /// <param name="credential">クレーム取得に使用する <see cref="TokenCredential"/>。</param>
+    /// <param name="cancellationToken">キャンセル トークン。</param>
+    /// <returns>解析済みのクレームを保持する <see cref="TokenClaims"/>。</returns>
     public static async Task<TokenClaims> GetAsync(TokenCredential credential, CancellationToken cancellationToken)
     {
         // Azure 管理プレーン用トークンの JWT ペイロードを読み取り、診断に必要な代表的クレームだけを抜き出す。
@@ -366,6 +432,10 @@ internal sealed record TokenClaims(string TenantId, string ObjectId, string Appl
     }
 }
 
+/// <summary>
+/// Markdown 形式のサンプル ファイルから Azure CLI クエリを読み取り、
+/// アプリ向けに正規化した Resource Graph クエリを提供するクラス。
+/// </summary>
 internal sealed class QuerySample
 {
     // Azure CLI のサンプル コマンドから -q と --subscriptions を抜き出すための正規表現。
@@ -382,12 +452,22 @@ internal sealed class QuerySample
         SubscriptionId = subscriptionId;
     }
 
+    /// <summary>サンプル ファイルの元テキスト。</summary>
     public string RawText { get; }
 
+    /// <summary>サンプル ファイルから抽出した Resource Graph クエリ テキスト。</summary>
     public string QueryText { get; }
 
+    /// <summary>サンプル ファイルから抽出したサブスクリプション ID。指定がない場合は <see langword="null"/>。</summary>
     public string? SubscriptionId { get; }
 
+    /// <summary>
+    /// 指定パスのサンプル ファイルを読み取り、<see cref="QuerySample"/> のインスタンスを生成して返す。
+    /// </summary>
+    /// <param name="path">Markdown 形式のサンプル ファイルのパス。</param>
+    /// <returns>読み取り済みの <see cref="QuerySample"/>。</returns>
+    /// <exception cref="FileNotFoundException">ファイルが存在しない場合。</exception>
+    /// <exception cref="InvalidOperationException">クエリ テキストを抽出できない場合。</exception>
     public static QuerySample Load(string path)
     {
         string fullPath = Path.GetFullPath(path);
@@ -416,6 +496,16 @@ internal sealed class QuerySample
         return new QuerySample(rawText, queryText, subscriptionId);
     }
 
+    /// <summary>
+    /// クエリの射影を正規化し、必要に応じて対象リソース ID の条件を上書きして返す。
+    /// </summary>
+    /// <param name="targetResourceIdOverride">
+    /// 上書きする対象リソース ID。<see langword="null"/> または空白の場合は上書きしない。
+    /// </param>
+    /// <returns>アプリ向けに正規化した Resource Graph クエリ テキスト。</returns>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="targetResourceIdOverride"/> が指定されたが、クエリ内に上書き可能な条件が見つからない場合。
+    /// </exception>
     public string BuildQuery(string? targetResourceIdOverride)
     {
         // 生のサンプル クエリでは後続処理しづらい列名があるため、表示側で扱いやすい射影へ正規化する。
@@ -445,6 +535,11 @@ internal sealed class QuerySample
             : queryText;
     }
 
+    /// <summary>
+    /// クエリ テキストから対象リソース ID を抽出して返す。
+    /// </summary>
+    /// <param name="queryText">対象リソース ID を検索するクエリ テキスト。</param>
+    /// <returns>抽出したリソース ID。見つからない場合は <see langword="null"/>。</returns>
     public string? ExtractTargetResourceId(string queryText)
     {
         Match match = TargetResourceIdRegex.Match(queryText);
@@ -452,8 +547,26 @@ internal sealed class QuerySample
     }
 }
 
+/// <summary>
+/// 1 つのプロパティに対する変更前後の値を保持するレコード。
+/// </summary>
+/// <param name="Field">変更されたプロパティ名。</param>
+/// <param name="Label">表示用のラベル名。</param>
+/// <param name="Before">変更前の値。</param>
+/// <param name="After">変更後の値。</param>
 internal sealed record SettingChange(string Field, string Label, string Before, string After);
 
+/// <summary>
+/// App Service Plan のスケール変更ログの 1 エントリを表すレコード。
+/// </summary>
+/// <param name="ChangeTime">変更時刻 (UTC、<c>yyyy-MM-dd HH:mm:ss</c> 形式)。</param>
+/// <param name="ChangeType">変更種別 (<c>Update</c> など)。</param>
+/// <param name="Operation">変更操作の説明文 (スケールアップ・ダウンなど)。</param>
+/// <param name="TargetName">対象リソースの短縮名。</param>
+/// <param name="TargetResourceId">対象リソースの完全 ID。</param>
+/// <param name="Execution">実行モード (<c>人間</c> または <c>自動</c>)。</param>
+/// <param name="Actor">変更実行者。自動実行の場合は空文字列。</param>
+/// <param name="Changes">変更されたプロパティの一覧。</param>
 internal sealed record ScaleLogEntry(
     string ChangeTime,
     string ChangeType,
@@ -465,9 +578,16 @@ internal sealed record ScaleLogEntry(
     IReadOnlyList<SettingChange> Changes)
 {
     // 表形式では 1 セルに収まる要約が必要なので、変更差分を短い文章にまとめて返す。
+    /// <summary>
+    /// 変更差分を表形式の 1 セルに収まる短い要約文字列として返す。
+    /// </summary>
     public string SettingDiff => FormatSettingDiff(Changes);
 
     // JSON 出力では、CLI で見やすいように入れ子構造へ整形してからシリアライズする。
+    /// <summary>
+    /// JSON 出力向けに入れ子構造へ整形した匿名オブジェクトを返す。
+    /// </summary>
+    /// <returns>シリアライズ用の匿名オブジェクト。</returns>
     public object ToJsonRecord() => new
     {
         changeTime = ChangeTime,
@@ -511,6 +631,10 @@ internal sealed record ScaleLogEntry(
     }
 }
 
+/// <summary>
+/// Azure Resource Graph の応答 JSON を <see cref="ScaleLogEntry"/> のリストへ変換するパーサー クラス。
+/// ObjectArray 形式と Table 形式の両方に対応する。
+/// </summary>
 internal static class ScaleLogEntryParser
 {
     // App Service Plan の変更のうち、スケール関連として見せたい代表的なプロパティ名を分類しておく。
@@ -547,6 +671,12 @@ internal static class ScaleLogEntryParser
         ["properties.hyperV"] = "Hyper-V",
     };
 
+    /// <summary>
+    /// Resource Graph の応答 <see cref="BinaryData"/> を解析し、<see cref="ScaleLogEntry"/> のリストを返す。
+    /// </summary>
+    /// <param name="data">Resource Graph が返した応答データ。</param>
+    /// <returns>変換済みの <see cref="ScaleLogEntry"/> リスト。</returns>
+    /// <exception cref="InvalidOperationException">予期しない応答形式の場合。</exception>
     public static IReadOnlyList<ScaleLogEntry> Parse(BinaryData data)
     {
         JsonElement root = data.ToObjectFromJson<JsonElement>();
@@ -865,6 +995,10 @@ internal static class ScaleLogEntryParser
     }
 }
 
+/// <summary>
+/// <see cref="ScaleLogEntry"/> のリストを JSON 形式でコンソールに出力するクラス。
+/// 対話端末では色付きで表示し、リダイレクト時は純粋な整形済み JSON を出力する。
+/// </summary>
 internal static class JsonConsole
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -873,6 +1007,10 @@ internal static class JsonConsole
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    /// <summary>
+    /// <see cref="ScaleLogEntry"/> のリストを JSON 形式でコンソールに出力する。
+    /// </summary>
+    /// <param name="entries">出力する <see cref="ScaleLogEntry"/> のリスト。</param>
     public static void Print(IReadOnlyList<ScaleLogEntry> entries)
     {
         // リダイレクト時は純粋な JSON、対話端末では色付き整形を使い分ける。
@@ -979,8 +1117,19 @@ internal static class JsonConsole
     }
 }
 
+/// <summary>
+/// <see cref="ScaleLogEntry"/> のリストを固定幅の表形式でコンソールに出力するクラス。
+/// 列幅を自動計算し、長い文字列は省略表示する。
+/// </summary>
 internal static class ConsoleTable
 {
+    /// <summary>
+    /// 指定したアイテムのリストを固定幅の表形式でコンソールに出力する。
+    /// </summary>
+    /// <typeparam name="T">表示対象のアイテムの型。</typeparam>
+    /// <param name="items">表示するアイテムのリスト。</param>
+    /// <param name="mapRow">アイテムを列値の配列にマッピングする関数。</param>
+    /// <param name="headers">列見出しの配列。</param>
     public static void Print<T>(IReadOnlyList<T> items, Func<T, string[]> mapRow, string[] headers)
     {
         // 各列の最大幅を先に求めておき、長い文字列は列ごとの上限で省略表示する。
