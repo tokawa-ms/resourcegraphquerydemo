@@ -84,7 +84,7 @@
 - 現在の資格情報から見えているサブスクリプション一覧
 - 単純な `Resources` クエリの実行結果
 
-この診断モードは、「サブスクリプションの参照権限が無い」のか「`resourcechanges/read` が無い」のかを切り分ける目的で使います。
+この診断モードは、「サブスクリプションの参照権限が無い」のか「Azure Resource Graph の変更履歴参照権限 (`Microsoft.ResourceGraph/resourceChanges/read`) が無い」のかを切り分ける目的で使います。
 
 ## Resource Graph 応答の解釈
 
