@@ -2,10 +2,10 @@
 
 [日本語](README.md) | [English](readme-en.md)
 
-[![License: MIT](https://img.shields.io/github/license/tokawa-ms/resourcegraphquerydemo)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![Azure Resource Graph](https://img.shields.io/badge/Azure-Resource%20Graph-0078D4?logo=microsoftazure&logoColor=white)](https://learn.microsoft.com/azure/governance/resource-graph/)
-[![GitHub stars](https://img.shields.io/github/stars/tokawa-ms/resourcegraphquerydemo?style=social)](https://github.com/tokawa-ms/resourcegraphquerydemo)
+[![Repository](https://img.shields.io/badge/Repository-GitHub-181717?logo=github&logoColor=white)](https://github.com/tokawa-ms/resourcegraphquerydemo)
 
 Azure Resource Graph のサンプルクエリをそのまま再利用しつつ、App Service Plan の変更履歴を見やすい形で確認するための .NET 10 コンソールアプリです。
 
