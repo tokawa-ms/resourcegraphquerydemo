@@ -14,24 +14,29 @@ var cancellationToken = CancellationToken.None;
 
 try
 {
+    // 実行時引数とサンプルクエリを読み込み、実際に投げる Resource Graph クエリを確定する。
     AppArguments arguments = AppArguments.Parse(args);
     QuerySample querySample = QuerySample.Load(arguments.QuerySamplePath);
 
+    // サブスクリプション ID は明示引数を優先し、未指定の場合はサンプルファイルから補完する。
     string subscriptionId = arguments.SubscriptionId ?? querySample.SubscriptionId
         ?? throw new InvalidOperationException("Subscription ID was not provided and could not be extracted from the sample file.");
 
     string queryText = querySample.BuildQuery(arguments.TargetResourceId);
 
+    // 認証の種類を切り替えられるようにしつつ、ARM クライアントから現在のテナントを取得する。
     TokenCredential credential = CredentialFactory.Create(arguments.CredentialMode);
     var armClient = new ArmClient(credential);
     TenantResource tenant = await GetTenantAsync(armClient, cancellationToken);
 
+    // --diagnose-auth 指定時は、本問い合わせを行う前に認証状態の切り分け情報だけを表示して終了する。
     if (arguments.DiagnoseAuth)
     {
         await DiagnosticsPrinter.PrintAsync(credential, armClient, tenant, subscriptionId, arguments.TargetResourceId, cancellationToken);
         return;
     }
 
+    // Resource Graph への問い合わせ条件を組み立て、応答をアプリ用の表示モデルへ変換する。
     var request = new ResourceQueryContent(queryText)
     {
         Options = new ResourceQueryRequestOptions
@@ -45,6 +50,7 @@ try
     Response<ResourceQueryResult> response = await tenant.GetResourcesAsync(request, cancellationToken);
     IReadOnlyList<ScaleLogEntry> entries = ScaleLogEntryParser.Parse(response.Value.Data);
 
+    // 先頭で問い合わせ条件の概要を出し、その後に表形式または JSON 形式で結果を表示する。
     Console.OutputEncoding = Encoding.UTF8;
     Console.WriteLine($"Credential   : {arguments.CredentialMode}");
     Console.WriteLine($"Subscription : {subscriptionId}");
@@ -100,6 +106,7 @@ catch (Exception exception) when (exception is not OperationCanceledException)
 
 static async Task<TenantResource> GetTenantAsync(ArmClient armClient, CancellationToken cancellationToken)
 {
+    // Resource Graph の呼び出しにはテナント スコープのクライアントが必要なため、見えている先頭テナントを採用する。
     await foreach (TenantResource tenant in armClient.GetTenants().GetAllAsync(cancellationToken: cancellationToken))
     {
         return tenant;
@@ -112,6 +119,7 @@ internal sealed record AppArguments(string QuerySamplePath, string? Subscription
 {
     public static AppArguments Parse(string[] args)
     {
+        // querysample.md を既定値にしつつ、必要なオプションだけを簡易な手動解析で受け取る。
         string querySamplePath = GetDefaultQuerySamplePath();
         string? subscriptionId = null;
         string? targetResourceId = null;
@@ -173,6 +181,7 @@ internal sealed record AppArguments(string QuerySamplePath, string? Subscription
 
     private static string GetDefaultQuerySamplePath()
     {
+        // リポジトリ直下での実行と、ビルド出力ディレクトリからの実行の両方を吸収する。
         string currentDirectoryPath = Path.Combine(Environment.CurrentDirectory, "querysample.md");
         if (File.Exists(currentDirectoryPath))
         {
@@ -206,6 +215,7 @@ internal sealed record AppArguments(string QuerySamplePath, string? Subscription
 
 internal static class CredentialFactory
 {
+    // サンプル用途なので、利用者が意図した認証方式を明示的に選べるようにしている。
     public static TokenCredential Create(string credentialMode) => credentialMode switch
     {
         "azurecli" => new AzureCliCredential(),
@@ -223,6 +233,7 @@ internal static class DiagnosticsPrinter
         string? targetResourceId,
         CancellationToken cancellationToken)
     {
+        // 認証トークンの主体情報と、現在の資格情報から見えているサブスクリプション一覧を表示する。
         Console.OutputEncoding = Encoding.UTF8;
         Console.WriteLine("Authentication diagnostics");
         Console.WriteLine();
@@ -252,6 +263,7 @@ internal static class DiagnosticsPrinter
 
         try
         {
+            // 本命の resourcechanges クエリの前に、単純な Resources クエリが成功するかで権限不足の層を切り分ける。
             Response<ResourceQueryResult> baselineResponse = await tenant.GetResourcesAsync(CreateBaselineRequest(subscriptionId, targetResourceId), cancellationToken);
             int baselineCount = ExtractObjectArrayCount(baselineResponse.Value.Data);
             Console.WriteLine($"Baseline resources query       : Succeeded ({baselineCount} row(s))");
@@ -308,6 +320,7 @@ internal sealed record TokenClaims(string TenantId, string ObjectId, string Appl
 {
     public static async Task<TokenClaims> GetAsync(TokenCredential credential, CancellationToken cancellationToken)
     {
+        // Azure 管理プレーン用トークンの JWT ペイロードを読み取り、診断に必要な代表的クレームだけを抜き出す。
         AccessToken token = await credential.GetTokenAsync(new TokenRequestContext(["https://management.azure.com/.default"]), cancellationToken);
         string[] tokenParts = token.Token.Split('.');
         if (tokenParts.Length < 2)
@@ -341,6 +354,7 @@ internal sealed record TokenClaims(string TenantId, string ObjectId, string Appl
 
     private static byte[] Base64UrlDecode(string value)
     {
+        // JWT は Base64Url 形式なので、通常の Base64 に戻してからデコードする。
         string normalized = value.Replace('-', '+').Replace('_', '/');
         int padding = 4 - normalized.Length % 4;
         if (padding is > 0 and < 4)
@@ -354,6 +368,7 @@ internal sealed record TokenClaims(string TenantId, string ObjectId, string Appl
 
 internal sealed class QuerySample
 {
+    // Azure CLI のサンプル コマンドから -q と --subscriptions を抜き出すための正規表現。
     private static readonly Regex QueryRegex = new("-q\\s+\"(?<query>[\\s\\S]*?)\"\\s*(?:\\\\\\s*)?--subscriptions", RegexOptions.Compiled);
     private static readonly Regex SubscriptionRegex = new(@"--subscriptions\s+(?<subscription>[0-9a-fA-F-]+)", RegexOptions.Compiled);
     private static readonly Regex TargetResourceIdRegex = new(@"'(?<resourceId>[^']+)'\s*=~\s*tostring\(properties\.targetResourceId\)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -385,6 +400,7 @@ internal sealed class QuerySample
         string rawText = File.ReadAllText(fullPath);
         Match queryMatch = QueryRegex.Match(rawText);
 
+        // querysample.md は Azure CLI コマンド例をそのまま置く前提なので、-q の中身をクエリ本文として扱う。
         if (!queryMatch.Success)
         {
             throw new InvalidOperationException("Could not extract the -q query text from the sample file.");
@@ -402,6 +418,7 @@ internal sealed class QuerySample
 
     public string BuildQuery(string? targetResourceIdOverride)
     {
+        // 生のサンプル クエリでは後続処理しづらい列名があるため、表示側で扱いやすい射影へ正規化する。
         string normalizedQuery = NormalizeProjection(QueryText);
 
         if (string.IsNullOrWhiteSpace(targetResourceIdOverride))
@@ -409,6 +426,7 @@ internal sealed class QuerySample
             return normalizedQuery;
         }
 
+        // サンプル内の targetResourceId 条件だけを差し替え、他の絞り込み条件はそのまま維持する。
         if (!TargetResourceIdRegex.IsMatch(normalizedQuery))
         {
             throw new InvalidOperationException("The sample query does not contain a targetResourceId predicate that can be overridden.");
@@ -446,8 +464,10 @@ internal sealed record ScaleLogEntry(
     string Actor,
     IReadOnlyList<SettingChange> Changes)
 {
+    // 表形式では 1 セルに収まる要約が必要なので、変更差分を短い文章にまとめて返す。
     public string SettingDiff => FormatSettingDiff(Changes);
 
+    // JSON 出力では、CLI で見やすいように入れ子構造へ整形してからシリアライズする。
     public object ToJsonRecord() => new
     {
         changeTime = ChangeTime,
@@ -493,6 +513,7 @@ internal sealed record ScaleLogEntry(
 
 internal static class ScaleLogEntryParser
 {
+    // App Service Plan の変更のうち、スケール関連として見せたい代表的なプロパティ名を分類しておく。
     private static readonly HashSet<string> ScaleInOutProperties = new(StringComparer.OrdinalIgnoreCase)
     {
         "sku.capacity",
@@ -530,6 +551,7 @@ internal static class ScaleLogEntryParser
     {
         JsonElement root = data.ToObjectFromJson<JsonElement>();
 
+        // Resource Graph は ObjectArray と Table の両形式を返せるため、どちらでも同じ表示モデルに寄せる。
         return root.ValueKind switch
         {
             JsonValueKind.Array => ParseObjectArray(root),
@@ -595,6 +617,7 @@ internal static class ScaleLogEntryParser
     {
         IReadOnlyList<SettingChange> parsedChanges = ParseSettingChanges(changes);
 
+        // 表示時に必要な派生値もここで確定しておくと、出力レイヤーを単純に保てる。
         return new ScaleLogEntry(
             FormatTimestamp(changeTime),
             string.IsNullOrWhiteSpace(changeType) ? "不明" : changeType,
@@ -666,6 +689,7 @@ internal static class ScaleLogEntryParser
             return [new SettingChange("changes", "changes", "(null)", FormatValue(changes))];
         }
 
+        // Resource Graph の changes オブジェクトを、UI 表示しやすい before / after の一覧へ変換する。
         SettingChange[] propertyChanges = changes
             .EnumerateObject()
             .Select(static property => CreateSettingChange(property.Name, property.Value))
@@ -683,6 +707,7 @@ internal static class ScaleLogEntryParser
             return string.IsNullOrWhiteSpace(changeType) ? "不明" : changeType;
         }
 
+        // Update の中でも、変更されたプロパティ群から「スケールアップ・ダウン」等の説明文を推測する。
         if (changes.ValueKind != JsonValueKind.Object)
         {
             return "プラン変更";
@@ -746,6 +771,7 @@ internal static class ScaleLogEntryParser
 
     private static string DetermineExecution(JsonElement changeAttributes)
     {
+        // changedByType=User のときだけ人手による変更と見なし、それ以外は自動実行として扱う。
         string changedByType = TryGetNestedString(changeAttributes, "changedByType");
         return string.Equals(changedByType, "User", StringComparison.OrdinalIgnoreCase)
             ? "人間"
@@ -784,6 +810,7 @@ internal static class ScaleLogEntryParser
             ? displayName
             : propertyName;
 
+        // previousValue / newValue が空の項目は差分として表示しても情報量が少ないため省く。
         if (change.ValueKind != JsonValueKind.Object)
         {
             return new SettingChange(propertyName, label, "(null)", FormatValue(change));
@@ -848,6 +875,7 @@ internal static class JsonConsole
 
     public static void Print(IReadOnlyList<ScaleLogEntry> entries)
     {
+        // リダイレクト時は純粋な JSON、対話端末では色付き整形を使い分ける。
         object[] records = entries.Select(static entry => entry.ToJsonRecord()).ToArray();
 
         if (Console.IsOutputRedirected)
@@ -955,6 +983,7 @@ internal static class ConsoleTable
 {
     public static void Print<T>(IReadOnlyList<T> items, Func<T, string[]> mapRow, string[] headers)
     {
+        // 各列の最大幅を先に求めておき、長い文字列は列ごとの上限で省略表示する。
         List<string[]> rows = items.Select(mapRow).ToList();
 
         int[] maxWidths = headers.Select(static header => header.Length).ToArray();
